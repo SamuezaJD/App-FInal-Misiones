@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>App Misiones</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    
+    <!-- Firebase SDK (v8 compat mode for local file:// usage) -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+    
+    <script src="app.js" defer></script>
+</head>
+<body>
+    <header class="app-header">
+        <div class="logo">
+            <h1>APP <span>MISIONES</span></h1>
+        </div>
+        <div class="status-indicator">
+            <span class="dot offline" id="cloud-status"></span>
+            <span id="cloud-status-text">Local Mode</span>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="form-section">
+            <div class="panel">
+                <h2>Nueva Misión</h2>
+                <form id="task-form">
+                    <div class="form-group">
+                        <label for="task-type">Tipo de Actividad</label>
+                        <select id="task-type" required>
+                            <option value="examen">Examen</option>
+                            <option value="prueba">Prueba</option>
+                            <option value="proyecto">Proyecto</option>
+                            <option value="informe">Informe</option>
+                            <option value="deber">Deber</option>
+                            <option value="taller">Taller</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="task-subject">Materia</label>
+                        <input type="text" id="task-subject" placeholder="Ej. Programación Avanzada" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="task-date">Fecha de Entrega</label>
+                        <input type="date" id="task-date" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="task-desc">Descripción</label>
+                        <textarea id="task-desc" rows="3" placeholder="Detalles de la misión..."></textarea>
+                    </div>
+
+
+
+                    <div class="form-group">
+                        <label for="task-status">Estado Actual</label>
+                        <select id="task-status">
+                            <option value="pendiente">Pendiente</option>
+                            <option value="proceso">En Proceso</option>
+                            <option value="realizada">Realizada</option>
+                        </select>
+                    </div>
+
+                    <button type="submit" id="submit-btn" class="btn-primary">Añadir Misión</button>
+                </form>
+            </div>
+        </section>
+
+        <section class="dashboard-section">
+            <div class="panel dashboard-panel">
+                <div class="dashboard-header">
+                    <h2>PRIORIDADES</h2>
+                    <div class="sort-info">Ordenado por urgencia</div>
+                </div>
+                <div id="tasks-container" class="tasks-grid">
+                    <!-- Las tarjetas de tareas se inyectarán aquí -->
+                    <div class="empty-state">No hay misiones activas. ¡Todo despejado!</div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <template id="task-card-template">
+        <div class="task-card">
+            <div class="task-header">
+                <span class="task-type-badge"></span>
+                <span class="task-date-badge"></span>
+            </div>
+            <h3 class="task-subject"></h3>
+            <p class="task-desc"></p>
+            <div class="task-footer">
+                <select class="task-status-update">
+                    <option value="pendiente">Pendiente</option>
+                    <option value="proceso">En Proceso</option>
+                    <option value="realizada">Realizada</option>
+                </select>
+                <div class="task-actions">
+                    <button class="btn-edit" title="Editar Misión">✎</button>
+                    <button class="btn-delete" title="Eliminar Misión">×</button>
+                </div>
+            </div>
+        </div>
+    </template>
+</body>
+</html>
