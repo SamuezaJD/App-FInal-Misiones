@@ -24,31 +24,69 @@ const cloudStatus = document.getElementById('cloud-status');
 const cloudStatusText = document.getElementById('cloud-status-text');
 const template = document.getElementById('task-card-template');
 
+// --- Persistencia Local (LocalStorage Fallback) ---
+function saveToLocalStorage() {
+    localStorage.setItem('misiones_app_tasks', JSON.stringify(tasks));
+}
+
+function loadFromLocalStorage() {
+    const saved = localStorage.getItem('misiones_app_tasks');
+    if (saved) {
+        try {
+            tasks = JSON.parse(saved);
+        } catch (e) {
+            tasks = [];
+        }
+    }
+}
+
 // --- Configuración e Inicialización ---
 function init() {
+    // 1. Cargar inmediatamente de LocalStorage para que nunca se borre la información al recargar
+    loadFromLocalStorage();
+    renderTasks();
+
     cloudStatusText.textContent = 'Conectando a la nube...';
     
-    // Escuchar cambios en la base de datos en tiempo real (Sincronización Mágica)
-    db.collection('tasks').onSnapshot((snapshot) => {
-        tasks = [];
-        snapshot.forEach((doc) => {
-            tasks.push({
-                id: doc.id,
-                ...doc.data()
-            });
+    // 2. Intentar habilitar la persistencia offline nativa de Firestore
+    try {
+        db.enablePersistence().catch(err => {
+            console.warn("Persistencia offline de Firestore no disponible:", err);
         });
+    } catch (e) {
+        console.warn("Error al habilitar persistencia:", e);
+    }
+    
+    // 3. Escuchar cambios en la base de datos en tiempo real
+    db.collection('tasks').onSnapshot((snapshot) => {
+        if (!snapshot.empty) {
+            const cloudTasks = [];
+            snapshot.forEach((doc) => {
+                cloudTasks.push({
+                    id: doc.id,
+                    ...doc.data()
+                });
+            });
+            
+            // Sincronizar combinando los datos locales con los de la nube (evita perder datos no subidos)
+            const tasksMap = new Map();
+            tasks.forEach(t => tasksMap.set(t.id, t));
+            cloudTasks.forEach(t => tasksMap.set(t.id, t));
+            
+            tasks = Array.from(tasksMap.values());
+            saveToLocalStorage();
+            renderTasks();
+        }
         
         // Actualizar estado visual de la nube
         cloudStatus.classList.remove('offline');
         cloudStatus.classList.add('online');
-        cloudStatusText.textContent = 'Sync: Firebase Cloud';
-        
-        renderTasks();
+        cloudStatusText.textContent = 'Sync: Nube + Local';
     }, (error) => {
-        console.error("Error al sincronizar con Firebase: ", error);
+        console.error("Error de permisos o conexión con Firebase. Usando almacenamiento Local Segurizado: ", error);
         cloudStatus.classList.remove('online');
         cloudStatus.classList.add('offline');
-        cloudStatusText.textContent = 'Error de Sincronización';
+        cloudStatusText.textContent = 'Modo Local (Datos Seguros)';
     });
 }
 
@@ -95,25 +133,44 @@ taskForm.addEventListener('submit', (e) => {
     };
 
     if (editingTaskId) {
-        // Actualizar tarea existente en Firebase
+        // 1. Actualizar localmente de forma instantánea
+        const index = tasks.findIndex(t => t.id === editingTaskId);
+        if (index !== -1) {
+            tasks[index] = { ...tasks[index], ...taskData };
+            saveToLocalStorage();
+            renderTasks();
+        }
+
+        // 2. Intentar actualizar en Firebase
         db.collection('tasks').doc(editingTaskId).update(taskData)
             .then(() => {
-                editingTaskId = null;
-                document.getElementById('submit-btn').textContent = 'Añadir Misión';
-                taskForm.reset();
+                console.log("Actualizado en la nube correctamente.");
             })
-            .catch(err => console.error("Error al actualizar:", err));
+            .catch(err => console.warn("Guardado en Local (Nube sin permisos/offline):", err));
+
+        editingTaskId = null;
+        document.getElementById('submit-btn').textContent = 'Añadir Misión';
+        taskForm.reset();
     } else {
-        // Añadir nueva tarea a Firebase
+        // 1. Crear un ID único robusto compatible con local y nube
+        const newId = 'mision_' + Date.now();
         const newTask = {
+            id: newId,
             ...taskData,
-            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            createdAt: new Date().toISOString()
         };
-        db.collection('tasks').add(newTask)
-            .then(() => {
-                taskForm.reset();
-            })
-            .catch(err => console.error("Error al guardar:", err));
+
+        // 2. Guardar localmente de forma instantánea
+        tasks.push(newTask);
+        saveToLocalStorage();
+        renderTasks();
+
+        // 3. Intentar guardar en Firebase
+        db.collection('tasks').doc(newId).set(newTask)
+            .then(() => console.log("Guardado en la nube correctamente."))
+            .catch(err => console.warn("Guardado en Local (Nube sin permisos/offline):", err));
+
+        taskForm.reset();
     }
 });
 
@@ -171,17 +228,23 @@ function renderTasks() {
             card.classList.add('status-realizada');
         }
 
-        // Borde de prioridad según tipo (opcional, ahora es visual)
+        // Borde de prioridad según tipo
         if (task.type === 'examen' || task.type === 'proyecto' || task.type === 'prueba') card.classList.add('priority-high');
         else if (task.type === 'deber' || task.type === 'informe') card.classList.add('priority-med');
         else card.classList.add('priority-low');
 
         // Eventos de la tarjeta
         statusSelect.addEventListener('change', (e) => {
+            const newStatus = e.target.value;
+            // Actualizar localmente al instante
+            task.status = newStatus;
+            saveToLocalStorage();
+            renderTasks();
+
             // Actualizar estado en Firebase
             db.collection('tasks').doc(task.id).update({
-                status: e.target.value
-            }).catch(err => console.error("Error al actualizar estado:", err));
+                status: newStatus
+            }).catch(err => console.warn("Estado actualizado solo en Local:", err));
         });
 
         clone.querySelector('.btn-edit').addEventListener('click', () => {
@@ -202,9 +265,14 @@ function renderTasks() {
         });
 
         clone.querySelector('.btn-delete').addEventListener('click', () => {
+            // Eliminar localmente al instante
+            tasks = tasks.filter(t => t.id !== task.id);
+            saveToLocalStorage();
+            renderTasks();
+
             // Eliminar de Firebase
             db.collection('tasks').doc(task.id).delete()
-                .catch(err => console.error("Error al eliminar:", err));
+                .catch(err => console.warn("Eliminado solo en Local:", err));
         });
 
         tasksContainer.appendChild(clone);
