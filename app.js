@@ -84,8 +84,8 @@ function init() {
             const cloudTasks = [];
             snapshot.forEach((doc) => {
                 cloudTasks.push({
-                    id: doc.id,
-                    ...doc.data()
+                    ...doc.data(),
+                    id: doc.id
                 });
             });
             
