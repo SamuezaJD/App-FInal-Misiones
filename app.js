@@ -81,24 +81,19 @@ function init() {
     // 3. Escuchar cambios en la base de datos en tiempo real de forma segura
     try {
         db.collection('tasks').onSnapshot((snapshot) => {
-            if (!snapshot.empty) {
-                const cloudTasks = [];
-                snapshot.forEach((doc) => {
-                    cloudTasks.push({
-                        id: doc.id,
-                        ...doc.data()
-                    });
+            const cloudTasks = [];
+            snapshot.forEach((doc) => {
+                cloudTasks.push({
+                    id: doc.id,
+                    ...doc.data()
                 });
-                
-                // Sincronizar combinando los datos locales con los de la nube
-                const tasksMap = new Map();
-                tasks.forEach(t => tasksMap.set(t.id, t));
-                cloudTasks.forEach(t => tasksMap.set(t.id, t));
-                
-                tasks = Array.from(tasksMap.values());
-                saveToLocalStorage();
-                renderTasks();
-            }
+            });
+            
+            // La nube de Firebase es la fuente absoluta de verdad en tiempo real.
+            // Sincronizamos las tareas locales exactamente con el estado de la nube.
+            tasks = cloudTasks;
+            saveToLocalStorage();
+            renderTasks();
             
             // Actualizar estado visual de la nube
             cloudStatus.classList.remove('offline');
