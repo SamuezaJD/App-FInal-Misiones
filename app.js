@@ -9,9 +9,18 @@ const firebaseConfig = {
     measurementId: "G-S0G8JHLY3G"
 };
 
-// Inicializar Firebase (SDK v8 para compatibilidad local)
-firebase.initializeApp(firebaseConfig);
-const db = firebase.firestore();
+// Inicialización Segura de Firebase (Evita que bloqueadores o falta de internet rompan la app)
+let db = null;
+try {
+    if (typeof firebase !== 'undefined') {
+        firebase.initializeApp(firebaseConfig);
+        db = firebase.firestore();
+    } else {
+        console.warn("SDK de Firebase no detectado. La app funcionará en modo 100% Local de alto rendimiento.");
+    }
+} catch (e) {
+    console.error("Error al inicializar Firebase:", e);
+}
 
 // Estado de la Aplicación
 let tasks = [];
@@ -26,17 +35,22 @@ const template = document.getElementById('task-card-template');
 
 // --- Persistencia Local (LocalStorage Fallback) ---
 function saveToLocalStorage() {
-    localStorage.setItem('misiones_app_tasks', JSON.stringify(tasks));
+    try {
+        localStorage.setItem('misiones_app_tasks', JSON.stringify(tasks));
+    } catch (e) {
+        console.error("Error al guardar en LocalStorage:", e);
+    }
 }
 
 function loadFromLocalStorage() {
-    const saved = localStorage.getItem('misiones_app_tasks');
-    if (saved) {
-        try {
+    try {
+        const saved = localStorage.getItem('misiones_app_tasks');
+        if (saved) {
             tasks = JSON.parse(saved);
-        } catch (e) {
-            tasks = [];
         }
+    } catch (e) {
+        console.error("Error al cargar de LocalStorage:", e);
+        tasks = [];
     }
 }
 
@@ -45,6 +59,13 @@ function init() {
     // 1. Cargar inmediatamente de LocalStorage para que nunca se borre la información al recargar
     loadFromLocalStorage();
     renderTasks();
+
+    if (!db) {
+        cloudStatus.classList.remove('online');
+        cloudStatus.classList.add('offline');
+        cloudStatusText.textContent = 'Modo Local (Sin Conexión)';
+        return;
+    }
 
     cloudStatusText.textContent = 'Conectando a la nube...';
     
@@ -57,37 +78,42 @@ function init() {
         console.warn("Error al habilitar persistencia:", e);
     }
     
-    // 3. Escuchar cambios en la base de datos en tiempo real
-    db.collection('tasks').onSnapshot((snapshot) => {
-        if (!snapshot.empty) {
-            const cloudTasks = [];
-            snapshot.forEach((doc) => {
-                cloudTasks.push({
-                    id: doc.id,
-                    ...doc.data()
+    // 3. Escuchar cambios en la base de datos en tiempo real de forma segura
+    try {
+        db.collection('tasks').onSnapshot((snapshot) => {
+            if (!snapshot.empty) {
+                const cloudTasks = [];
+                snapshot.forEach((doc) => {
+                    cloudTasks.push({
+                        id: doc.id,
+                        ...doc.data()
+                    });
                 });
-            });
+                
+                // Sincronizar combinando los datos locales con los de la nube
+                const tasksMap = new Map();
+                tasks.forEach(t => tasksMap.set(t.id, t));
+                cloudTasks.forEach(t => tasksMap.set(t.id, t));
+                
+                tasks = Array.from(tasksMap.values());
+                saveToLocalStorage();
+                renderTasks();
+            }
             
-            // Sincronizar combinando los datos locales con los de la nube (evita perder datos no subidos)
-            const tasksMap = new Map();
-            tasks.forEach(t => tasksMap.set(t.id, t));
-            cloudTasks.forEach(t => tasksMap.set(t.id, t));
-            
-            tasks = Array.from(tasksMap.values());
-            saveToLocalStorage();
-            renderTasks();
-        }
-        
-        // Actualizar estado visual de la nube
-        cloudStatus.classList.remove('offline');
-        cloudStatus.classList.add('online');
-        cloudStatusText.textContent = 'Sync: Nube + Local';
-    }, (error) => {
-        console.error("Error de permisos o conexión con Firebase. Usando almacenamiento Local Segurizado: ", error);
-        cloudStatus.classList.remove('online');
-        cloudStatus.classList.add('offline');
+            // Actualizar estado visual de la nube
+            cloudStatus.classList.remove('offline');
+            cloudStatus.classList.add('online');
+            cloudStatusText.textContent = 'Sync: Nube + Local';
+        }, (error) => {
+            console.error("Error de permisos o conexión con Firebase. Usando almacenamiento Local Segurizado: ", error);
+            cloudStatus.classList.remove('online');
+            cloudStatus.classList.add('offline');
+            cloudStatusText.textContent = 'Modo Local (Datos Seguros)';
+        });
+    } catch (e) {
+        console.error("Error al configurar onSnapshot:", e);
         cloudStatusText.textContent = 'Modo Local (Datos Seguros)';
-    });
+    }
 }
 
 // --- Algoritmo de Prioridad ---
@@ -141,12 +167,16 @@ taskForm.addEventListener('submit', (e) => {
             renderTasks();
         }
 
-        // 2. Intentar actualizar en Firebase
-        db.collection('tasks').doc(editingTaskId).update(taskData)
-            .then(() => {
-                console.log("Actualizado en la nube correctamente.");
-            })
-            .catch(err => console.warn("Guardado en Local (Nube sin permisos/offline):", err));
+        // 2. Intentar actualizar en Firebase de forma segura
+        if (db) {
+            try {
+                db.collection('tasks').doc(editingTaskId).update(taskData)
+                    .then(() => console.log("Actualizado en la nube correctamente."))
+                    .catch(err => console.warn("Guardado en Local (Nube sin permisos/offline):", err));
+            } catch(e) {
+                console.warn("Error al intentar guardar en Firebase:", e);
+            }
+        }
 
         editingTaskId = null;
         document.getElementById('submit-btn').textContent = 'Añadir Misión';
@@ -165,10 +195,16 @@ taskForm.addEventListener('submit', (e) => {
         saveToLocalStorage();
         renderTasks();
 
-        // 3. Intentar guardar en Firebase
-        db.collection('tasks').doc(newId).set(newTask)
-            .then(() => console.log("Guardado en la nube correctamente."))
-            .catch(err => console.warn("Guardado en Local (Nube sin permisos/offline):", err));
+        // 3. Intentar guardar en Firebase de forma segura
+        if (db) {
+            try {
+                db.collection('tasks').doc(newId).set(newTask)
+                    .then(() => console.log("Guardado en la nube correctamente."))
+                    .catch(err => console.warn("Guardado en Local (Nube sin permisos/offline):", err));
+            } catch(e) {
+                console.warn("Error al intentar guardar en Firebase:", e);
+            }
+        }
 
         taskForm.reset();
     }
@@ -241,10 +277,14 @@ function renderTasks() {
             saveToLocalStorage();
             renderTasks();
 
-            // Actualizar estado en Firebase
-            db.collection('tasks').doc(task.id).update({
-                status: newStatus
-            }).catch(err => console.warn("Estado actualizado solo en Local:", err));
+            // Actualizar estado en Firebase de forma segura
+            if (db) {
+                try {
+                    db.collection('tasks').doc(task.id).update({
+                        status: newStatus
+                    }).catch(err => console.warn("Estado actualizado solo en Local:", err));
+                } catch(err) {}
+            }
         });
 
         clone.querySelector('.btn-edit').addEventListener('click', () => {
@@ -270,9 +310,13 @@ function renderTasks() {
             saveToLocalStorage();
             renderTasks();
 
-            // Eliminar de Firebase
-            db.collection('tasks').doc(task.id).delete()
-                .catch(err => console.warn("Eliminado solo en Local:", err));
+            // Eliminar de Firebase de forma segura
+            if (db) {
+                try {
+                    db.collection('tasks').doc(task.id).delete()
+                        .catch(err => console.warn("Eliminado solo en Local:", err));
+                } catch(err) {}
+            }
         });
 
         tasksContainer.appendChild(clone);
@@ -281,3 +325,4 @@ function renderTasks() {
 
 // Iniciar app
 init();
+
