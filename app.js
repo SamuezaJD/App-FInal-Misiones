@@ -103,7 +103,7 @@ function init() {
             // Actualizar estado visual de la nube
             cloudStatus.classList.remove('offline');
             cloudStatus.classList.add('online');
-            cloudStatusText.textContent = 'Sync: Nube + Local';
+            cloudStatusText.textContent = 'Sync: Firebase Cloud';
         }, (error) => {
             console.error("Error de permisos o conexión con Firebase. Usando almacenamiento Local Segurizado: ", error);
             cloudStatus.classList.remove('online');
@@ -325,4 +325,3 @@ function renderTasks() {
 
 // Iniciar app
 init();
-
